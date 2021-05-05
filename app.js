@@ -1,55 +1,158 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const date = require(__dirname + "/date.js"); // whenever requiring a personally made module, must add the dirname and the slash to let comp know that it is a local file.
 
+const e = require('express');
+const express = require('express');
+const mongoose = require('mongoose');
 const app = express();
+const _ = require('lodash');
 
-const inputs = ["Buy Food", "Cook Food", "Eat Food"];
-const workItems = [];
+mongoose.connect('mongodb+srv://admin_ryan:test123@cluster0.wpmsc.mongodb.net/todolistDB', {useNewUrlParser: true, useUnifiedTopology: true});
 
-app.set("view engine", "ejs"); // needed to start ejs'
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static("public")); // needed for adding css. this tells express that it should go in the public foloder
+app.set('view engine', 'ejs');
 
-app.get("/", function (req, res) {
-  const day = date.getDate();
+app.use(express.json());
+app.use(express.urlencoded({extended:true}));
 
-  // what is render used for? it is used to put data into the html. This is telling the page to render the 'list' with the list title as the current day with the inputs as the newListItems
-  res.render("list", { listTitle: day, newListItems: inputs });
-  //   res.render("list", { date: currentDay });
+app.use(express.static("public"));
+
+
+// start with database things
+// create schema for each database document (document is like a row)
+const itemSchema = new mongoose.Schema({
+  name: String
 });
 
-app.post("/", function (req, res) {
-  //use REQ for whenever you need to call from page
-  // use RES whenever you need to send to page
-  const input = req.body.nextItem;
-  if (req.body.lister === "Work") {
-    workItems.push(input);
-    console.log(req);
-    console.log(req.body);
-    res.redirect("/work");
+// create new collection (this is like a table)
+const Item = new mongoose.model('Item', itemSchema);
+
+// create new content 
+const item1 = new Item ({
+  name: 'welcome'
+});
+const item2 = new Item ({
+  name: 'hit +'
+});
+const item3 = new Item ({
+  name: 'delete here'
+});
+
+const defaultItems = [item1, item2, item3];
+
+const listSchema = {
+  name: String,
+  items: [itemSchema]
+};
+
+const List = new mongoose.model('List', listSchema);
+
+// Item.deleteMany({name:'welcome'});
+
+
+// on home page
+app.get("/", function(req, res) {
+  // look at all the items in the table
+  Item.find({}, function(err, foundItems){
+    // if there are no items
+    if (foundItems.length === 0){
+      // insert the default items 
+      Item.insertMany(defaultItems, function (err){
+        if (err) {
+          console.log('error');
+        } else {
+          console.log('success');
+        }
+      });      
+      res.redirect('/');
+    } else {
+    // if there are items, then just render the existing list
+    res.render("list", {listTitle: 'Today', newListItems: foundItems});      
+    }
+  });
+});
+
+// when user clicks/submit on the home button 
+app.post("/", function(req, res){
+  // get the itemNam
+  const itemName = req.body.newItem;
+  const listName = req.body.list;
+  
+  const item = new Item({
+    name: itemName
+  });
+  
+  if (listName === "Today") {
+    item.save();
+    res.redirect('/');
   } else {
-    inputs.push(input);
-    res.redirect("/");
+    List.findOne({name:listName}, function(err, foundList) {
+      console.log(foundList);
+        foundList.items.push(item);
+        foundList.save();
+        res.redirect('/'+ listName);
+    });
   }
 });
 
-// This is for if there is a work path. So anytime you create a new path, you have to create a new get and post? i guess so
-app.get("/work", function (req, res) {
-  res.render("list", { listTitle: "Work List", newListItems: workItems });
+app.post("/delete", function(req, res){
+  const checkedItemId = req.body.checkbox;
+  const listName = req.body.listName;
+
+  console.log(listName);
+
+  if (listName === 'Today'){
+    Item.findByIdAndRemove(checkedItemId, function(err){
+      if (!err){  
+        console.log('success deleted1');
+        res.redirect("/");
+      }
+    })
+  } else {
+    List.findOneAndUpdate({name:listName}, {$pull: {items: {_id: checkedItemId}}}, function(err, foundList){
+      if (!err){
+        res.redirect('/' + listName);
+      }
+      
+      // foundItems.findByIdAndRemove(checkedItemId, function(err){
+      //   if (!err){  
+      //     console.log('success deleted2');
+      //     res.redirect("/"+listName);
+      //   }
+      // })
+    })
+  }
 });
 
-app.post("/work", function (req, res) {
-  const input = req.body.nextItem;
-  workItems.push(input);
-  console.log(req.body);
-  res.redirect("/work");
+app.get("/:post", function(req, res){
+  const listName =  _.capitalize(req.params.post);
+  List.findOne({name: listName}, function(err, foundList){
+  if (!err) {
+      if (!foundList) {
+        const list = new List({
+          name: listName,
+          items: defaultItems
+        });
+        console.log('2');
+        list.save();
+        res.redirect("/" + listName);
+       
+      }else {
+        console.log('1');
+        res.render("list", {listTitle: foundList.name, newListItems: foundList.items});
+        console.log('4');
+    } 
+    }
+  })
 });
 
-app.get("/about", function (req, res) {
+
+app.get("/about", function(req, res){
   res.render("about");
 });
 
-app.listen(3000, function () {
-  console.log("server running on port 3000");
+let port = process.env.PORT;
+if (port == null || port == "") {
+  port = 3000;
+}
+
+app.listen(port, function() {
+  console.log("Server started");
 });
